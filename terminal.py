@@ -10,149 +10,386 @@ from paper import Account, fen, commission
 from review import Review
 from inspector import Inspector
 
-UP, DOWN, MINT = "#ba424b", "#17795e", "#73e9bb"
+UP, DOWN, MUTED = "#bc2338", "#127653", "#687180"
 STYLE = """
-QWidget {font-family:'Microsoft YaHei UI';font-size:13px;color:#172b30}
-QMainWindow,#workspace {background:#eff2ef}
-#rail,#rail QLabel {background:#132729;color:#cce0d8}
-#brand {font-size:22px;font-weight:bold}
-#rail QPushButton {color:#b7cbc6;background:transparent;border:0;text-align:left;padding:12px;border-radius:6px}
-#rail QPushButton:checked {background:#295149;color:#a1f3cb;font-weight:bold}
-#headline {font-size:27px;font-weight:bold}
-#muted {color:#536e69;font-size:12px}
-#card,#detail,#listPanel {background:#ffffff;border-radius:10px}
-#cardTitle {font-size:12px;color:#536e69}
-#number {font: bold 25px 'Segoe UI'}
-#hero,#hero QLabel {background:#173a37;color:#d2e8de}
-#hero {border-radius:10px}
-#heroTitle {font-size:19px;font-weight:bold}
-#price {font: bold 36px 'Segoe UI'}
-QLineEdit {background:#f6f8f6;border:1px solid #c7d6d0;border-radius:6px;padding:7px}
-QComboBox {background:#fff;border:1px solid #c7d6d0;border-radius:5px;padding:6px}
-QTableView {background:white;alternate-background-color:#f5f8f6;border:0;selection-background-color:#d8eee4;selection-color:#102c25;outline:0}
-QHeaderView::section {background:#eef4ef;color:#47645d;border:0;padding:6px;font-size:12px}
+QWidget {font-family:'Microsoft YaHei UI';font-size:13px;color:#192331}
+QMainWindow,#workspace {background:#f3f5f8}
+#masthead {background:#fff;border-bottom:1px solid #e0e5ec}
+#brand {color:#b41c34;font-size:24px;font-weight:700}
+#masthead QLabel {background:transparent}
+#marketScope {color:#626c7b;font-size:12px}
+QPushButton#topNav {background:transparent;border:0;border-radius:0;border-bottom:2px solid transparent;
+    padding:0 16px;color:#515d6e;font-weight:600}
+QPushButton#topNav:hover {background:#f7f8fa;color:#263347}
+QPushButton#topNav:checked {background:#fff2f4;border-bottom-color:#bd2138;color:#ac1931}
+#headline {font-size:28px;font-weight:700;color:#152034}
+#pageMeta,#muted {font-size:12px;color:#687180}
+#surface {background:#fff;border:1px solid #e0e5ec;border-radius:10px}
+#sectionTitle {font-size:16px;font-weight:700;color:#1c283b}
+#accountKey {font-size:12px;color:#627084}
+#accountValue {font-family:'Segoe UI','Microsoft YaHei UI';font-size:15px;font-weight:600;color:#203049}
+#breadthName {font-size:12px;color:#657287}
+#breadthValue {font-family:'Segoe UI';font-size:18px;font-weight:600}
+#stockTitle {font-size:22px;font-weight:700;color:#192539}
+#stockPrice {font-family:'Segoe UI';font-size:30px;font-weight:600;color:#192539}
+#stockMeta {font-size:12px;color:#627084}
+#decisionDetail {background:#faf3f5;border:1px solid #efd7dd;border-radius:6px;
+    padding:6px 9px;color:#632438}
+#reviewOverview {background:#f4f6f9;border-radius:6px;padding:8px 10px;color:#4a5970}
+#footer {background:#fff;border-top:1px solid #e0e5ec}
+QLineEdit,QComboBox,QDateEdit,QPlainTextEdit {
+    background:#fff;border:1px solid #d9e0e9;border-radius:6px;padding:5px 8px;
+    selection-background-color:#f4d1d8;selection-color:#451822
+}
+QLineEdit:focus,QComboBox:focus,QDateEdit:focus,QPlainTextEdit:focus {border-color:#bc2338}
+QAbstractItemView {selection-background-color:#fbe9ed;selection-color:#702237;alternate-background-color:#f8fafc}
+QPushButton {background:#fff;border:1px solid #d9e0e9;border-radius:6px;padding:5px 11px;color:#364257}
+QPushButton:hover {background:#f5f7fb;border-color:#c7d1de}
+QPushButton:pressed {background:#e9edf3}
+QPushButton#stockQuery {background:#bd2138;color:#fff;border-color:#bd2138;font-weight:700}
+QPushButton#stockQuery:hover {background:#a9192f;border-color:#a9192f}
+QPushButton#stockQuery:pressed {background:#8c1729;border-color:#8c1729}
+QTableView {background:#fff;border:0;outline:0}
+QHeaderView {background:#f3f5f8}
+QHeaderView::section {background:#f3f5f8;color:#5c687a;border:0;border-bottom:1px solid #e9edf2;padding:5px 8px;font-size:12px}
+QScrollBar:vertical {background:#f4f6fa;width:8px;margin:0}
+QScrollBar::handle:vertical {background:#c6cfdb;border-radius:3px;min-height:22px}
+QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical {height:0}
+QToolTip {background:#222a3a;color:#fff;border:1px solid #3c495e;padding:5px}
 QSplitter::handle {background:transparent}
+QSplitter::handle:hover {background:#e8c9d0}
 """
 def label(text="", name=""):
     obj=W.QLabel(text);obj.setObjectName(name);return obj
 
-def panel(name):
-    obj=W.QFrame();obj.setObjectName(name); layout=W.QVBoxLayout(obj)
-    layout.setContentsMargins(15,12,15,12);layout.setSpacing(6)
-    return obj,layout
+def panel():
+    frame=W.QFrame()
+    frame.setObjectName("surface")
+    layout=W.QVBoxLayout(frame)
+    layout.setContentsMargins(13,12,13,10)
+    layout.setSpacing(8)
+    return frame,layout
+
 
 class Rows(C.QAbstractTableModel):
     def __init__(self,headers):
-        super().__init__();self.headers=headers;self.rows=[]
-    def replace(self,rows):
-        self.beginResetModel();self.rows=rows;self.endResetModel()
-    def rowCount(self,parent=C.QModelIndex()):return len(self.rows)
-    def columnCount(self,parent=C.QModelIndex()):return len(self.headers)
-    def headerData(self,i,orientation,role):
-        if orientation==C.Qt.Horizontal and role==C.Qt.DisplayRole:return self.headers[i]
-    def data(self,index,role):
-        if not index.isValid():return None
-        value=self.rows[index.row()][index.column()]
-        if role==C.Qt.DisplayRole:return value
-        if role==C.Qt.TextAlignmentRole:return int(C.Qt.AlignCenter)
-        if role==C.Qt.ForegroundRole and value.endswith("%"):
-            return G.QColor(UP if value.startswith("+") else DOWN if value.startswith("-") else "#536e69")
+        super().__init__()
+        self.headers=headers
+        self.rows=[]
+        self.right_aligned={i for i,h in enumerate(headers) if h in (
+            "最新价", "涨跌幅", "价格", "成交价", "股数", "费用", "现金可买(股)", "延迟(秒)"
+        )}
 
-def table(model):
-    view=W.QTableView();view.setModel(model);view.verticalHeader().hide()
-    view.setSelectionBehavior(W.QAbstractItemView.SelectRows);view.setSelectionMode(W.QAbstractItemView.SingleSelection)
-    view.setShowGrid(False);view.setAlternatingRowColors(True)
+    def replace(self,rows):
+        if rows==self.rows:
+            return
+        self.beginResetModel()
+        self.rows=rows
+        self.endResetModel()
+
+    def rowCount(self,parent=C.QModelIndex()):
+        return len(self.rows)
+
+    def columnCount(self,parent=C.QModelIndex()):
+        return len(self.headers)
+
+    def headerData(self,i,orientation,role):
+        if orientation==C.Qt.Horizontal:
+            if role==C.Qt.DisplayRole:
+                return self.headers[i]
+            if role==C.Qt.TextAlignmentRole:
+                return int(self.alignment(i))
+
+    def alignment(self,column):
+        if column in self.right_aligned:
+            return C.Qt.AlignRight | C.Qt.AlignVCenter
+        if self.headers[column] in ("代码", "名称", "简称", "股票简称", "触发原因"):
+            return C.Qt.AlignLeft | C.Qt.AlignVCenter
+        return C.Qt.AlignCenter
+
+    def data(self,index,role):
+        if not index.isValid():
+            return None
+        col=index.column()
+        value=self.rows[index.row()][col]
+        if role==C.Qt.DisplayRole:
+            return value
+        if role==C.Qt.TextAlignmentRole:
+            return int(self.alignment(col))
+        if role==C.Qt.ForegroundRole:
+            if self.headers[col] in ("涨跌幅", "累计盈亏(元)") and isinstance(value,str) and value not in ("+0.00", "-0.00"):
+                return G.QColor(UP if value.startswith("+") else DOWN if value.startswith("-") else MUTED)
+            if self.headers[col]=="方向":
+                return G.QColor(UP if value=="买入" else DOWN)
+            if self.headers[col]=="代码":
+                return G.QColor(MUTED)
+
+
+class Table(W.QTableView):
+    def __init__(self,empty):
+        super().__init__()
+        self.empty=empty
+
+    def paintEvent(self,event):
+        super().paintEvent(event)
+        if self.model().rowCount()==0:
+            painter=G.QPainter(self.viewport())
+            painter.setPen(G.QColor(MUTED))
+            painter.drawText(self.viewport().rect(),C.Qt.AlignCenter,self.empty)
+
+
+def table(model,empty="暂无记录"):
+    view=Table(empty)
+    view.setModel(model)
+    view.verticalHeader().hide()
+    view.setSelectionBehavior(W.QAbstractItemView.SelectRows)
+    view.setSelectionMode(W.QAbstractItemView.SingleSelection)
+    view.setShowGrid(False)
+    view.setAlternatingRowColors(True)
+    view.setTextElideMode(C.Qt.ElideRight)
     view.horizontalHeader().setSectionResizeMode(W.QHeaderView.Stretch)
-    view.verticalHeader().setDefaultSectionSize(32)
+    view.horizontalHeader().setMinimumHeight(31)
+    view.verticalHeader().setDefaultSectionSize(30)
     return view
 
-class Chart(W.QWidget):
-    def __init__(self):
-        super().__init__();self.points=[];self.message="等待行情";self.setMinimumHeight(165)
-    def paintEvent(self,event):
-        p=G.QPainter(self);p.setRenderHint(G.QPainter.Antialiasing)
-        left,right,top,bottom=8,self.width()-50,14,self.height()-30
-        p.setPen(G.QColor("#a8c3b9"))
-        if len(self.points)<2:
-            p.drawText(self.rect(),C.Qt.AlignCenter,self.message);return
-        lo=min(x[1] for x in self.points);hi=max(x[1] for x in self.points)
-        pad=max((hi-lo)*.10,.005);lo-=pad;hi+=pad
-        for i in range(4):
-            y=top+(bottom-top)*i/3
-            p.setPen(G.QPen(G.QColor("#35544f"),1,C.Qt.DotLine));p.drawLine(left,int(y),right,int(y))
-            p.setPen(G.QColor("#b6cec2"));p.drawText(right+3,int(y)+4,f"{hi-(hi-lo)*i/3:.2f}")
-        path=G.QPainterPath()
-        for i,(minute,price) in enumerate(self.points):
-            x=left+(right-left)*minute/240;y=bottom-(price-lo)/(hi-lo)*(bottom-top)
-            (path.moveTo if i==0 else path.lineTo)(x,y)
-        area=G.QPainterPath(path);area.lineTo(x,bottom);area.lineTo(left+(right-left)*self.points[0][0]/240,bottom);area.closeSubpath()
-        grad=G.QLinearGradient(0,top,0,bottom);grad.setColorAt(0,G.QColor(93,228,168,100));grad.setColorAt(1,G.QColor(93,228,168,0))
-        p.fillPath(area,grad);p.setPen(G.QPen(G.QColor(MINT),2));p.drawPath(path)
-        p.setPen(G.QColor("#b6cec2"))
-        for x,t in [(left,"09:30"),((left+right)//2-15,"11:30"),(right-30,"15:00")]:p.drawText(x,bottom+20,t)
 
 class Terminal(W.QMainWindow):
     def __init__(self):
-        super().__init__();self.setWindowTitle("观市 · 沪深主板模拟终端");self.resize(1190,750);self.setMinimumSize(920,600)
-        self.review=Review(market.ROOT);self.lastreview=0;self.init_accounts();self.bus=queue.Queue();self.stop=threading.Event();self.data={};self.names={};self.symbol="sz000711";self.pending=False;self.loaded=None;self.lastchart=0
-        shell=W.QWidget();self.setCentralWidget(shell);base=W.QHBoxLayout(shell);base.setContentsMargins(0,0,0,0);base.setSpacing(0)
-        rail,nav=panel("rail");rail.setFixedWidth(142);base.addWidget(rail)
-        nav.addWidget(label("◩  观市","brand"));nav.addSpacing(28)
-        self.pages=W.QStackedWidget();self.nav=[]
-        for i,title in enumerate(["行情总览","信号记录","50元以内","模拟账户","每日复盘"]):
-            btn=W.QPushButton(title);btn.setCheckable(True);btn.setAutoExclusive(True);btn.clicked.connect(lambda checked,i=i:self.pages.setCurrentIndex(i));nav.addWidget(btn);self.nav.append(btn)
-        self.nav[0].setChecked(True);nav.addStretch();nav.addWidget(label("沪深主板 A 股"))
-        body,layout=panel("workspace");base.addWidget(body,1);layout.setContentsMargins(18,12,18,8);layout.setSpacing(10)
-        self.today=label();self.today.setWordWrap(True);layout.addWidget(self.today)
-        self.heading=label("市场总览","headline");layout.addWidget(self.heading)
-        self.pages.currentChanged.connect(lambda i:self.heading.setText(["市场总览","策略信号","50元以内","模拟账户","每日复盘"][i]))
-        cards=W.QHBoxLayout();layout.addLayout(cards);self.nums=[]
-        for title,color in [("有效报价","#183c35"),("上涨家数",UP),("下跌家数",DOWN),("平盘家数","#59726d")]:
-            card,col=panel("card");col.addWidget(label(title,"cardTitle"));num=label("—","number");num.setStyleSheet("color:"+color);col.addWidget(num);cards.addWidget(card);self.nums.append(num)
+        super().__init__()
+        self.setWindowTitle("观市 · 沪深主板模拟终端")
+        self.resize(1360,820)
+        self.setMinimumSize(1000,660)
+        self.review=Review(market.ROOT)
+        self.lastreview=0
+        self.init_accounts()
+        self.bus=queue.Queue()
+        self.stop=threading.Event()
+        self.data={}
+        self.names={}
+        self.symbol="sz000711"
+        self.loaded=self.symbol
+
+        shell=W.QWidget()
+        self.setCentralWidget(shell)
+        base=W.QVBoxLayout(shell)
+        base.setContentsMargins(0,0,0,0)
+        base.setSpacing(0)
+        masthead=W.QFrame()
+        masthead.setObjectName("masthead")
+        top=W.QHBoxLayout(masthead)
+        top.setContentsMargins(19,0,19,0)
+        top.setSpacing(0)
+        brand=label("观市","brand")
+        top.addWidget(brand)
+        top.addSpacing(25)
+        self.pages=W.QStackedWidget()
+        self.nav=[]
+        sections=("行情总览","信号记录","50 元以内","模拟账户","每日复盘")
+        for i,title in enumerate(sections):
+            button=W.QPushButton(title)
+            button.setObjectName("topNav")
+            button.setFixedHeight(53)
+            button.setCheckable(True)
+            button.setAutoExclusive(True)
+            button.clicked.connect(lambda checked,i=i:self.pages.setCurrentIndex(i))
+            top.addWidget(button)
+            self.nav.append(button)
+        self.nav[0].setChecked(True)
+        top.addStretch()
+        top.addWidget(label("沪深主板  /  模拟交易","marketScope"))
+        base.addWidget(masthead)
+
+        workspace=W.QWidget()
+        workspace.setObjectName("workspace")
+        layout=W.QVBoxLayout(workspace)
+        layout.setContentsMargins(18,13,18,13)
+        layout.setSpacing(10)
+        base.addWidget(workspace,1)
+
+        header=W.QHBoxLayout()
+        header.setSpacing(20)
+        titlebox=W.QVBoxLayout()
+        titlebox.setSpacing(2)
+        self.heading=label(sections[0],"headline")
+        titlebox.addWidget(self.heading)
+        self.today=label("","pageMeta")
+        titlebox.addWidget(self.today)
+        header.addLayout(titlebox,1)
+        self.pages.currentChanged.connect(lambda i:self.heading.setText(sections[i]))
+        self.account_stats=[]
+        for title in ("可用资金（元）","持仓浮盈亏（元）","今日成交"):
+            stat=W.QVBoxLayout()
+            stat.setSpacing(2)
+            stat.addWidget(label(title,"accountKey"))
+            value=label("—","accountValue")
+            stat.addWidget(value)
+            self.account_stats.append(value)
+            header.addLayout(stat)
+        layout.addLayout(header)
         layout.addWidget(self.pages,1)
-        split=W.QSplitter();split.setChildrenCollapsible(False);self.pages.addWidget(split)
-        left,col=panel("listPanel");split.addWidget(left)
-        filters=W.QHBoxLayout();col.addLayout(filters);self.search=W.QLineEdit();self.search.setPlaceholderText("搜索代码 / 股票简称")
-        self.scope=W.QComboBox();self.scope.addItems(["全部主板","沪市主板","深市主板"]);filters.addWidget(self.search,1);filters.addWidget(self.scope)
-        inspect=W.QPushButton("查这只股");filters.addWidget(inspect)
+
+        split=W.QSplitter()
+        split.setChildrenCollapsible(False)
+        split.setHandleWidth(10)
+        self.pages.addWidget(split)
+        left,quotes=panel()
+        left.setMinimumWidth(383)
+        split.addWidget(left)
+        list_heading=W.QHBoxLayout()
+        list_heading.addWidget(label("沪深主板","sectionTitle"))
+        list_heading.addStretch()
+        self.quote_count=label("等待行情","muted")
+        list_heading.addWidget(self.quote_count)
+        quotes.addLayout(list_heading)
+        breadth=W.QHBoxLayout()
+        breadth.setSpacing(8)
+        self.nums=[]
+        for title,color in (("报价","#223049"),("上涨",UP),("下跌",DOWN),("平盘",MUTED)):
+            pair=W.QVBoxLayout()
+            pair.setSpacing(1)
+            pair.addWidget(label(title,"breadthName"))
+            number=label("—","breadthValue")
+            number.setStyleSheet("color:"+color)
+            pair.addWidget(number)
+            breadth.addLayout(pair,1)
+            self.nums.append(number)
+        quotes.addLayout(breadth)
+        filters=W.QHBoxLayout()
+        filters.setSpacing(6)
+        self.search=W.QLineEdit()
+        self.search.setPlaceholderText("代码 / 股票简称")
+        self.search.setClearButtonEnabled(True)
+        self.scope=W.QComboBox()
+        self.scope.addItems(["全部主板","沪市主板","深市主板"])
+        filters.addWidget(self.search,1)
+        filters.addWidget(self.scope)
+        inspect=W.QPushButton("定位")
         inspect.clicked.connect(self.lookup)
-        self.model=Rows(["代码","名称","最新","涨跌幅","报价时间"]);self.list=table(self.model);col.addWidget(self.list,1)
-        self.list.clicked.connect(self.select);self.list.activated.connect(self.select)
-        self.search.textChanged.connect(self.refresh);self.scope.currentIndexChanged.connect(self.refresh)
-        hero,h=panel("hero");split.addWidget(hero);split.setSizes([620,390])
-        self.inspector=Inspector(self,market);h.addWidget(self.inspector)
-        split.setSizes([425,590])
-        self.events=Rows(["交易日","行情时间","代码","简称","信号","价格"]);self.pages.addWidget(table(self.events))
-        cheap,cl=panel("listPanel");self.cheap=Rows(["代码","名称","最新","涨跌幅","报价时间","现金可买(股)"]);cv=table(self.cheap);cl.addWidget(label("沪深主板 · 最新报价 ≤ 50.00 元 · 按涨幅排序"));cl.addWidget(cv);self.pages.addWidget(cheap)
+        self.search.returnPressed.connect(self.lookup)
+        filters.addWidget(inspect)
+        quotes.addLayout(filters)
+        self.model=Rows(["代码","名称","最新价","涨跌幅","报价时间"])
+        self.list=table(self.model,"暂无符合条件的行情")
+        self.list.horizontalHeader().setSectionResizeMode(1,W.QHeaderView.Stretch)
+        for col,width in ((0,65),(2,63),(3,68),(4,77)):
+            self.list.horizontalHeader().setSectionResizeMode(col,W.QHeaderView.Fixed)
+            self.list.setColumnWidth(col,width)
+        quotes.addWidget(self.list,1)
+        self.list.clicked.connect(self.select)
+        self.list.activated.connect(self.select)
+        self.search.textChanged.connect(self.refresh)
+        self.scope.currentIndexChanged.connect(self.refresh)
+
+        hero,h=panel()
+        split.addWidget(hero)
+        h.setContentsMargins(11,11,11,10)
+        self.inspector=Inspector(self,market)
+        h.addWidget(self.inspector)
+        split.setStretchFactor(0,1)
+        split.setStretchFactor(1,2)
+        split.setSizes([442,846])
+
+        signals,sl=panel()
+        sl.addWidget(label("策略触发记录","sectionTitle"))
+        self.events=Rows(["交易日","行情时间","代码","简称","信号","价格"])
+        sl.addWidget(table(self.events),1)
+        self.pages.addWidget(signals)
+
+        cheap,cl=panel()
+        cl.addWidget(label("最新报价 ≤ 50.00 元","sectionTitle"))
+        cl.addWidget(label("按涨跌幅排序，现金可买股数已扣除预计佣金。","muted"))
+        self.cheap=Rows(["代码","名称","最新价","涨跌幅","报价时间","现金可买(股)"])
+        affordable=table(self.cheap)
+        cl.addWidget(affordable,1)
+        self.pages.addWidget(cheap)
         def opencheap(idx):
-            self.symbol=self.lowcodes[idx.row()];self.loaded=None;self.nav[0].click();self.display()
-        cv.doubleClicked.connect(opencheap)
-        account,al=panel("listPanel");self.balance=label("","heroTitle");al.addWidget(self.balance);self.position=label();al.addWidget(self.position)
-        controls=W.QHBoxLayout();al.addLayout(controls);controls.addWidget(label("交易账户"))
-        self.accounts=W.QComboBox();controls.addWidget(self.accounts,1)
+            self.symbol=self.lowcodes[idx.row()]
+            self.loaded=None
+            self.nav[0].click()
+            self.display()
+        affordable.doubleClicked.connect(opencheap)
+
+        account,al=panel()
+        controls=W.QHBoxLayout()
+        controls.addWidget(label("交易账户","sectionTitle"))
+        self.accounts=W.QComboBox()
+        controls.addWidget(self.accounts)
         for number,amount in self.registry.execute("SELECT id,capital FROM profiles ORDER BY id"):
             self.accounts.addItem(f"账户 {number} · 本金 {amount/100:,.2f} 元",number)
         self.accounts.setCurrentIndex(self.accounts.findData(self.active_id))
         self.accounts.currentIndexChanged.connect(self.switch_account)
-        create=W.QPushButton("新建账户 · 设置初始资金");controls.addWidget(create);create.clicked.connect(self.new_account)
-        rules=label("仅当前选中账户参与新交易，切换后原账户暂停。沪深主板 · 单仓 · 盘中新发现的连续确认 → 后续卖一买入。次日起跌3%或涨6%触发退出，最早下一交易日14:50仍持有则触发卖出，按后续买一模拟成交。双边佣金万五、最低5元，卖出另计万五。")
-        rules.setWordWrap(True);al.addWidget(rules)
-        self.ledger=Rows(["报价时间","代码","股票简称","方向","成交价","股数","费用","触发原因"]);al.addWidget(table(self.ledger));self.pages.addWidget(account);self.show_account()
-        review,rl=panel("listPanel");self.reviewdate=W.QDateEdit(C.QDate.currentDate());self.reviewdate.setCalendarPopup(True)
-        rl.addWidget(self.reviewdate);self.cover=label();rl.addWidget(self.cover)
-        helptext=label("两组从启用日起各用5000元。候选在首分钟突破时入场；现行组等待连续确认。费用、盘口和退出规则相同。盈亏与回撤为截至所选日的累计值，回撤按实际收到的报价计算。")
-        helptext.setWordWrap(True);rl.addWidget(helptext)
+        controls.addStretch()
+        create=W.QPushButton("新建模拟账户")
+        create.setObjectName("stockQuery")
+        controls.addWidget(create)
+        create.clicked.connect(self.new_account)
+        al.addLayout(controls)
+        self.balance=label("","sectionTitle")
+        self.position=label("","pageMeta")
+        self.position.setWordWrap(True)
+        al.addWidget(self.balance)
+        al.addWidget(self.position)
+        rules=label("仅所选账户接收新交易。沪深主板单仓，连续确认后按后续卖一买入。次日起跌 3% 或涨 6% 触发退出，仍持仓则最早次日 14:50 按后续买一退出。佣金万五，最低 5 元，卖出另计万五。","muted")
+        rules.setWordWrap(True)
+        al.addWidget(rules)
+        al.addWidget(label("成交明细","sectionTitle"))
+        self.ledger=Rows(["报价时间","代码","股票简称","方向","成交价","股数","费用","触发原因"])
+        al.addWidget(table(self.ledger),1)
+        self.pages.addWidget(account)
+        self.show_account()
+
+        review,rl=panel()
+        datebar=W.QHBoxLayout()
+        datebar.addWidget(label("复盘记录","sectionTitle"))
+        datebar.addStretch()
+        self.reviewdate=W.QDateEdit(C.QDate.currentDate())
+        self.reviewdate.setCalendarPopup(True)
+        self.reviewdate.setDisplayFormat("yyyy-MM-dd")
+        self.category=W.QComboBox()
+        self.category.addItems(["全部","本账户已成交","盘中未成交","盘后或超时"])
+        datebar.addWidget(self.reviewdate)
+        datebar.addWidget(self.category)
+        rl.addLayout(datebar)
+        self.cover=label("","reviewOverview")
+        self.cover.setWordWrap(True)
+        rl.addWidget(self.cover)
         self.summary=Rows(["对照组","信号","及时发现","买入","买入/及时","累计盈亏(元)","最大回撤"])
-        rl.addWidget(table(self.summary),1)
-        self.category=W.QComboBox();self.category.addItems(["全部","本账户已成交","盘中未成交","盘后或超时"]);rl.addWidget(self.category)
-        self.category.currentIndexChanged.connect(self.show_review)
-        self.experiment=label();self.experiment.setWordWrap(True);rl.addWidget(self.experiment)
+        summary=table(self.summary)
+        summary.setMaximumHeight(100)
+        rl.addWidget(summary)
+        self.experiment=label("","muted")
+        self.experiment.setWordWrap(True)
+        self.experiment.setToolTip("首分钟突破与连续确认对照组各用 5000 元。费用、盘口和退出规则相同。按实际收到的报价计算截至所选日的累计值。")
+        rl.addWidget(self.experiment)
+        review_heading=W.QHBoxLayout()
+        review_heading.addWidget(label("信号明细","sectionTitle"))
+        review_heading.addStretch()
+        review_heading.addWidget(label("双击记录查看当日分时","muted"))
+        rl.addLayout(review_heading)
         self.reviewrows=Rows(["行情分钟","代码","规则","首次发现","延迟(秒)","对照账户","主账户"])
-        rv=table(self.reviewrows);rv.doubleClicked.connect(self.open_review);rl.addWidget(rv,3);self.pages.addWidget(review)
-        self.reviewdate.dateChanged.connect(self.show_review);self.pages.currentChanged.connect(self.show_review)
-        self.status=label("连接行情源…","muted");self.progress=label("","muted");layout.addWidget(self.status);layout.addWidget(self.progress)
-        self.timer=C.QTimer(self);self.timer.timeout.connect(self.tick);self.timer.start(400)
+        records=table(self.reviewrows)
+        records.doubleClicked.connect(self.open_review)
+        rl.addWidget(records,1)
+        self.pages.addWidget(review)
+        self.reviewdate.dateChanged.connect(self.show_review)
+        self.category.currentIndexChanged.connect(self.show_review)
+        self.pages.currentChanged.connect(self.show_review)
+
+        footer=W.QFrame()
+        footer.setObjectName("footer")
+        statusbar=W.QHBoxLayout(footer)
+        statusbar.setContentsMargins(18,5,18,5)
+        self.status=label("连接行情源…","muted")
+        self.progress=label("","muted")
+        statusbar.addWidget(self.status,1)
+        statusbar.addWidget(self.progress)
+        base.addWidget(footer)
+
+        self.timer=C.QTimer(self)
+        self.timer.timeout.connect(self.tick)
+        self.timer.start(400)
         threading.Thread(target=self.worker,daemon=True).start()
+
     def account_path(self,number):
         return market.ROOT/("观市模拟账户.sqlite3" if number==1 else f"观市模拟账户_{number}.sqlite3")
     def init_accounts(self):
@@ -201,8 +438,14 @@ class Terminal(W.QMainWindow):
         now=dt.datetime.now(market.CN)
         fills=self.account.db.execute("SELECT side,symbol FROM fills WHERE stamp>=? ORDER BY id",(now.date().isoformat(),)).fetchall()
         trades="、".join(f"{side}{sym[2:]}" for side,sym in fills[-3:]) or "暂无成交"
-        qtime=max((q[2] for q in self.data.values()),default=None)
-        self.today.setText(f"账户 {self.active_id} · 本金 {s.get('capital',500000)/100:,.2f} 元　今日 {len(fills)} 笔（{trades}）　现金 {s['cash']/100:,.2f} 元　持仓浮盈亏 {((pos['mark']-pos['price'])*pos['shares']/100 if pos else 0):+.2f} 元　最新报价 {qtime.strftime('%m-%d %H:%M:%S') if qtime else '待同步'}")
+        unrealized=(pos["mark"]-pos["price"])*pos["shares"]/100 if pos else 0
+        self.today.setText(f"模拟账户 {self.active_id}　·　本金 {s.get('capital',500000)/100:,.2f} 元")
+        cash, pnl, count=self.account_stats
+        cash.setText(f"{s['cash']/100:,.2f}")
+        pnl.setText(f"{unrealized:+,.2f}")
+        pnl.setStyleSheet("color:"+(UP if unrealized>0 else DOWN if unrealized<0 else MUTED))
+        count.setText(f"{len(fills)} 笔")
+        count.setToolTip(trades)
         self.ledger.replace([(t[5:19].replace('T',' '),sym,self.names.get(sym,'简称待同步'),side,f"{price/100:.2f}",str(qty),f"{fee/100:.2f}",reason) for t,sym,side,price,qty,fee,reason in self.account.db.execute("SELECT stamp,symbol,side,price,shares,fee,reason FROM fills ORDER BY id DESC LIMIT 500")])
     def select(self,idx):
         self.symbol=self.visible[idx.row()];self.loaded=None;self.display()
@@ -212,12 +455,21 @@ class Terminal(W.QMainWindow):
         rows=[]
         for s in self.visible:
             price,change,t,_=self.data[s][:4];rows.append((s[2:],self.names[s],f"{price:.2f}",f"{change:+.2f}%" if change else "0.00%",t.strftime("%H:%M:%S")))
+        self.quote_count.setText(f"{len(rows):,} 只 · 涨跌幅排序" if self.data else "等待行情")
         offset=self.list.verticalScrollBar().value()
-        self.model.replace(rows);self.list.verticalScrollBar().setValue(offset)
+        self.model.replace(rows)
+        if self.symbol in self.visible:
+            self.list.selectRow(self.visible.index(self.symbol))
+        self.list.verticalScrollBar().setValue(offset)
     def lookup(self):
         query=self.search.text().strip()
+        if query and len(getattr(self,"visible",[]))==1:
+            self.symbol=self.visible[0]
+            self.loaded=None
+            self.display()
+            return
         if query:
-            self.inspector.code.setText(query if not getattr(self,"visible",[]) or len(self.visible)!=1 else self.visible[0])
+            self.inspector.code.setText(query)
         self.inspector.search()
     def display(self):
         if self.loaded!=self.symbol:
@@ -242,7 +494,7 @@ class Terminal(W.QMainWindow):
         coverage,stats,rows=self.review.report(day,self.category.currentText())
         if self.category.currentText()=="本账户已成交":
             rows=[(stamp[11:16],sym,side,"—","—","—",f"{shares} 股 × {price/100:.2f}") for stamp,sym,side,shares,price in self.account.db.execute("SELECT stamp,symbol,side,shares,price FROM fills WHERE replace(substr(stamp,1,10),'-','')=? ORDER BY stamp DESC",(day,))]
-        self.experiment.setText(self.review.experiments.summary(day))
+        self.experiment.setText(self.review.experiments.summary(day).replace("　|　","\n"))
         post,online,unknown=self.review.db.execute("""SELECT count(CASE WHEN substr(found,12,5)>='15:00' THEN 1 END),
         count(CASE WHEN substr(found,12,5)<'15:00' AND c.hm IS NOT NULL THEN 1 END),
         count(CASE WHEN substr(found,12,5)<'15:00' AND c.hm IS NULL THEN 1 END)
@@ -250,7 +502,10 @@ class Terminal(W.QMainWindow):
         progress=self.review.db.execute("SELECT total,done,success FROM progress WHERE day=?",(day,)).fetchone()
         progress_text=f"收盘复核 {progress[1]}/{progress[0]} 只 · 待查 {progress[0]-progress[1]} · 读取失败 {progress[1]-progress[2]} 只" if progress else "本日暂无收盘复核进度"
         self.cover.setWordWrap(True)
-        self.cover.setText(f"{progress_text}　账户 {self.active_id} · 收盘后发现 {post} 条 · 其余延迟中信号分钟在线 {online} 条 / 覆盖未知 {unknown} 条 · 交易时段有程序心跳 {coverage[0]} 分钟　·　有新鲜报价 {coverage[1]} 分钟　·　无记录时段覆盖未知")
+        self.cover.setText(
+            f"{progress_text}　·　在线记录 {coverage[0]} 分钟　·　新鲜报价 {coverage[1]} 分钟\n"
+            f"收盘后发现 {post} 条　·　其余延迟中，信号分钟在线 {online} 条、覆盖未知 {unknown} 条"
+        )
         self.summary.replace(stats);self.reviewrows.replace(rows)
     def tick(self):
         now=dt.datetime.now(market.CN)
@@ -271,7 +526,7 @@ class Terminal(W.QMainWindow):
                 for w,n in zip(self.nums,[len(self.data),sum(x>0 for x in changes),sum(x<0 for x in changes),sum(x==0 for x in changes)]):w.setText(f"{n:,}")
                 self.lowcodes=[s for s in self.order if 0<self.data[s][0]<=50]
                 self.review.primary_scan(self.account,self.data,dt.datetime.now(market.CN));self.review.scan(self.data,dt.datetime.now(market.CN),fresh);self.show_account()
-                self.refresh_cheap();self.refresh();self.display()
+                self.refresh_cheap();self.refresh();self.display();self.inspector.update_quote()
                 self.status.setText(("行情中断或延迟 · " if market.session(now) and not fresh else "")+f"名录 {len(self.names):,}　·　当日成交 {current:,}　·　盘中90秒内报价 {fresh:,}　·　扫描 {elapsed:.1f} 秒　·　失败批次 {errors}")
             elif k=="review_progress":
                 with self.review.db:self.review.db.execute("INSERT OR REPLACE INTO progress VALUES(?,?,?,?)",v)
@@ -285,11 +540,6 @@ class Terminal(W.QMainWindow):
             elif k=="event":signals.append(tuple(map(str,v)))
             elif k=="progress":self.progress.setText(v)
             elif k=="status":self.status.setText(v)
-            elif k=="chart":
-                self.pending=False;s,date,points,hi=v
-                if s!=self.symbol:self.display();continue
-                self.loaded=s;self.lastchart=market.time.monotonic();self.chart.points=points;self.chart.message="暂无可用分时行情";self.chart.update()
-                self.sessionlabel.setText("分时走势　"+date);self.range.setText("开盘区间上沿　"+(f"{hi:.2f}" if hi is not None else "—"))
         if signals or (self.names and self.events.rows and self.events.rows[0][3]=="—"):
             combined=[(d,t,s,self.names.get(s,n),kind,p) for d,t,s,n,kind,p in signals+self.events.rows]
             self.events.replace(sorted(combined,key=lambda r:(r[0],r[1]),reverse=True)[:500])

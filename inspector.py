@@ -1,10 +1,17 @@
 """Single-stock intraday review. Prices are yuan and source volume is cumulative lots."""
+import datetime as dt
 import json
 import queue
 import threading
 from pathlib import Path
 
 from PyQt5 import QtCore as C, QtGui as G, QtWidgets as W
+
+PRICE_LINE = "#ff6978"
+VWAP_LINE = "#edbd65"
+CHART_BG = "#161a22"
+CHART_GRID = "#2a303d"
+CHART_TEXT = "#a7aebd"
 
 
 def series(lines):
@@ -27,94 +34,274 @@ def series(lines):
 
 
 class Plot(W.QWidget):
+    clicked = C.pyqtSignal(str)
+    AXIS_LABELS = ((0, "09:30"), (60, "10:30"), (120, "11:30 / 13:00"),
+                   (180, "14:00"), (240, "15:00"))
+
     def __init__(self):
         super().__init__()
-        self.rows = []
+        self._rows = []
         self.marks = {}
-        self.setMinimumHeight(240)
+        self.hovered = None
+        self.selected = None
+        self.setMinimumHeight(110)
         self.setMouseTracking(True)
+        self.setCursor(C.Qt.CrossCursor)
+        self.setAccessibleName("分时走势与成交量")
+
+    @property
+    def rows(self):
+        return self._rows
+
+    @rows.setter
+    def rows(self, rows):
+        self._rows = rows
+        self.hovered = self.selected = None
+
+    def horizontal_bounds(self):
+        return 14, max(15, self.width() - 54)
+
+    def plot_x(self, offset, afternoon=False):
+        left, right = self.horizontal_bounds()
+        lunch_gap = 8
+        return left + (right-left-lunch_gap) * offset/240 + (lunch_gap if afternoon else 0)
+
+    def row_x(self, row):
+        return self.plot_x(row[1], row[0]>="1300")
+
+    def nearest_row(self, x):
+        return min(self.rows, key=lambda row: abs(self.row_x(row)-x), default=None)
 
     def mouseMoveEvent(self, event):
-        if self.rows:
-            x = (event.x()-10)*240/max(1,self.width()-76)
-            hm, _, price, avg, vol = min(self.rows,key=lambda r:abs(r[1]-x))
-            a = f"{avg:.2f}" if avg is not None else "—"
-            v = f"{vol:.0f}" if vol is not None else "—"
-            W.QToolTip.showText(event.globalPos(),f"{hm[:2]}:{hm[2:]}  价格 {price:.2f}  均价 {a}  分钟量 {v} 手",self)
+        row = self.nearest_row(event.x())
+        if row != self.hovered:
+            self.hovered = row
+            self.update()
 
-    clicked=C.pyqtSignal(str)
-    def mousePressEvent(self,event):
-        if self.rows:
-            x=(event.x()-10)*240/max(1,self.width()-76)
-            self.clicked.emit(min(self.rows,key=lambda row:abs(row[1]-x))[0])
+    def leaveEvent(self, event):
+        self.hovered = None
+        self.update()
+        super().leaveEvent(event)
 
-    def paintEvent(self,event):
-        p = G.QPainter(self)
-        p.fillRect(self.rect(),G.QColor("#142825"))
-        p.setRenderHint(G.QPainter.Antialiasing)
-        p.setPen(G.QColor("#c4d9d1"))
+    def mousePressEvent(self, event):
+        if event.button() == C.Qt.LeftButton:
+            self.selected = self.nearest_row(event.x())
+            if self.selected:
+                self.update()
+                self.clicked.emit(self.selected[0])
+
+    def price_paths(self, column, y_at, floor):
+        path = G.QPainterPath()
+        area = G.QPainterPath()
+        previous = None
+        for row in self.rows:
+            value = row[column]
+            if value is None:
+                previous = None
+                continue
+            x, y = self.row_x(row), y_at(value)
+            consecutive = previous and row[1]-previous[0][1] <= 1
+            same_session = previous and (row[0] >= "1300") == (previous[0][0] >= "1300")
+            if consecutive and same_session:
+                _, px, py = previous
+                path.lineTo(x, y)
+                if column==2:
+                    area.moveTo(px, floor)
+                    area.lineTo(px, py)
+                    area.lineTo(x, y)
+                    area.lineTo(x, floor)
+                    area.closeSubpath()
+            else:
+                path.moveTo(x, y)
+            previous = row, x, y
+        return path, area
+
+    def draw_grid(self, painter, top, floor, base, lo, hi, active_x, price_y):
+        left, right = self.horizontal_bounds()
+        metrics = painter.fontMetrics()
+        for fraction in (0, .5, 1) if floor-top < 64 else (0, 1/3, 2/3, 1):
+            y = round(top+(floor-top)*fraction)
+            painter.setPen(G.QColor(CHART_GRID))
+            painter.drawLine(left, y, right, y)
+            if abs(price_y-y) > 13:
+                painter.setPen(G.QColor(CHART_TEXT))
+                painter.drawText(right+7, y+4, f"{hi-(hi-lo)*fraction:.2f}")
+        for offset, label in self.AXIS_LABELS:
+            x = round(self.plot_x(offset, offset>120) + (4 if offset==120 else 0))
+            painter.setPen(G.QColor(CHART_GRID))
+            painter.drawLine(x, top, x, base)
+            if offset in (0,120,240) or self.width()>=420:
+                text_width = metrics.horizontalAdvance(label)
+                text_x = max(left, min(right-text_width, x-text_width//2))
+                if active_x is None or not text_x-20 <= active_x <= text_x+text_width+20:
+                    painter.setPen(G.QColor(CHART_TEXT))
+                    painter.drawText(text_x, self.height()-7, label)
+        painter.setPen(G.QColor(CHART_GRID))
+        painter.drawLine(left, base, right, base)
+
+    def draw_badge(self, painter, text, x, y, color):
+        width = painter.fontMetrics().horizontalAdvance(text)+10
+        x = max(3, min(self.width()-width-3, round(x-width/2)))
+        box = C.QRectF(x, round(y), width, 18)
+        painter.setPen(C.Qt.NoPen)
+        painter.setBrush(G.QColor("#303847"))
+        painter.drawRoundedRect(box, 4, 4)
+        painter.setPen(G.QColor(color))
+        painter.drawText(box, C.Qt.AlignCenter, text)
+
+    def draw_readout(self, painter, row):
+        hm, _, price, average, volume = row
+        values = (
+            (f"{hm[:2]}:{hm[2:]}", CHART_TEXT),
+            (f"分时 {price:.2f}", PRICE_LINE),
+            (f"均价 {average:.2f}" if average is not None else "均价 —", VWAP_LINE),
+            (f"量 {volume:,.0f} 手" if volume is not None else "量 —", CHART_TEXT),
+        )
+        x = self.horizontal_bounds()[0]
+        for text, color in values:
+            width = painter.fontMetrics().horizontalAdvance(text)
+            if x+width <= self.width()-10:
+                painter.setPen(G.QColor(color))
+                painter.drawText(x, 17, text)
+                x += width+12
+
+    def paintEvent(self, event):
+        painter = G.QPainter(self)
+        painter.setRenderHint(G.QPainter.Antialiasing)
+        painter.setPen(C.Qt.NoPen)
+        painter.setBrush(G.QColor(CHART_BG))
+        painter.drawRoundedRect(C.QRectF(self.rect()), 8, 8)
+        painter.setPen(G.QColor(CHART_TEXT))
         if not self.rows:
-            p.drawText(self.rect(),C.Qt.AlignCenter,"暂无该日分时数据")
+            painter.drawText(self.rect(), C.Qt.AlignCenter, "暂无该日分时数据")
             return
-        width, height = self.width()-76, self.height()
-        bottom, base = int(height*.63),height-24
-        prices = [v for r in self.rows for v in r[2:4] if v is not None]
-        lo,hi = min(prices)-.005,max(prices)+.005
-        peak = max([r[4] or 0 for r in self.rows]+[1])
-        for frac in (0,.5,1):
-            y = round(18+frac*(bottom-18))
-            p.setPen(G.QColor("#34524a"));p.drawLine(10,y,width+10,y)
-            p.setPen(G.QColor("#c4d9d1"));p.drawText(width+14,y+4,f"{hi-frac*(hi-lo):.2f}")
-        for index,color in ((2,"#71e2bb"),(3,"#f4c76d")):
-            path = G.QPainterPath()
-            last = None
-            for row in self.rows:
-                value = row[index]
-                x = 10+width*row[1]/240
-                if value is None:
-                    last = None
-                    continue
-                y = bottom-(value-lo)/(hi-lo)*(bottom-18)
-                if last is None or row[1]-last>1:path.moveTo(x,y)
-                else:path.lineTo(x,y)
-                last = row[1]
-                if index==2 and row[0] in self.marks:
-                    p.setPen(G.QColor("#ffffff"));p.drawText(int(x),int(y)-3,self.marks[row[0]])
-            p.setPen(G.QPen(G.QColor(color),1.7));p.drawPath(path)
-        p.setPen(G.QColor("#80afa2"))
-        for _,offset,_,_,volume in self.rows:
+
+        font = painter.font()
+        font.setPixelSize(11)
+        painter.setFont(font)
+        left, right = self.horizontal_bounds()
+        top, base = 30, self.height()-24
+        floor = top+max(10, round((base-top)*.73))
+        prices = [value for row in self.rows for value in row[2:4] if value is not None]
+        pad = max(.015, (max(prices)-min(prices))*.09)
+        lo, hi = min(prices)-pad, max(prices)+pad
+        def y_at(price):
+            return floor-(price-lo)/(hi-lo)*(floor-top)
+        active = self.hovered or self.selected
+        readout = active or self.rows[-1]
+        active_x = round(self.row_x(readout))
+        active_y = round(y_at(readout[2]))
+        self.draw_readout(painter, readout)
+        self.draw_grid(painter, top, floor, base, lo, hi, active_x if active else None, active_y)
+
+        peak = max([row[4] or 0 for row in self.rows]+[1])
+        bar_width = max(1.0, (right-left)/350)
+        previous = None
+        for row in self.rows:
+            price, volume = row[2], row[4]
             if volume:
-                x = round(10+width*offset/240)
-                p.drawLine(x,base,x,base-round((base-bottom-22)*volume/peak))
-        p.drawText(10,bottom+16,"分钟成交量（手）")
-        for offset,title in ((0,"09:30"),(120,"11:30 / 13:00"),(240,"15:00")):
-            p.drawText(round(10+width*offset/240),height-5,title)
+                x = self.row_x(row)
+                height = max(1, (base-floor-7)*volume/peak)
+                color = "#39866a" if previous is not None and price<previous else "#a54b58"
+                painter.fillRect(C.QRectF(x-bar_width/2, base-height, bar_width, height), G.QColor(color))
+            previous = price
+
+        price_path, area = self.price_paths(2, y_at, floor)
+        gradient = G.QLinearGradient(0, top, 0, floor)
+        gradient.setColorAt(0, G.QColor(255, 105, 120, 47))
+        gradient.setColorAt(1, G.QColor(255, 105, 120, 2))
+        painter.fillPath(area, gradient)
+        average_path, _ = self.price_paths(3, y_at, floor)
+        for path, color, stroke in ((average_path, VWAP_LINE, 1.15), (price_path, PRICE_LINE, 1.5)):
+            painter.setPen(G.QPen(G.QColor(color), stroke))
+            painter.drawPath(path)
+
+        previous_marker = -50
+        for row in self.rows:
+            marker = self.marks.get(row[0])
+            if marker:
+                x, y = self.row_x(row), y_at(row[2])
+                painter.setPen(C.Qt.NoPen)
+                painter.setBrush(G.QColor(VWAP_LINE))
+                painter.drawEllipse(C.QPointF(x, y), 2.5, 2.5)
+                if x-previous_marker >= 25 and floor-top >= 45:
+                    self.draw_badge(painter, marker, x, max(20, y-22), "#ffffff")
+                    previous_marker = x
+
+        hm, _, price, _, _ = readout
+        if active:
+            painter.setPen(G.QPen(G.QColor("#667284"), 1, C.Qt.DashLine))
+            painter.drawLine(active_x, top, active_x, base)
+            painter.drawLine(left, active_y, right, active_y)
+            self.draw_badge(painter, f"{hm[:2]}:{hm[2:]}", active_x, self.height()-21, "#ffffff")
+        painter.setPen(G.QPen(G.QColor(CHART_BG), 1))
+        painter.setBrush(G.QColor(PRICE_LINE))
+        painter.drawEllipse(C.QPointF(active_x, active_y), 3.4, 3.4)
+        self.draw_badge(painter, f"{price:.2f}", (right+self.width())/2, active_y-9, "#ffffff")
 
 
 class Inspector(W.QWidget):
     def __init__(self,terminal,market):
         super().__init__(terminal)
         self.setWindowTitle("查这只股 · 分时与决策")
-        self.setMinimumWidth(300)
-        layout = W.QVBoxLayout(self)
-        controls = W.QHBoxLayout()
-        layout.addLayout(controls)
-        code = W.QLineEdit(terminal.symbol)
+        self.setMinimumWidth(440)
+        self.terminal=terminal
+        self.market=market
+        self.symbol=None
+        self.series_status=""
+        layout=W.QVBoxLayout(self)
+        layout.setContentsMargins(0,0,0,0)
+        layout.setSpacing(8)
+
+        header=W.QHBoxLayout()
+        identity=W.QVBoxLayout()
+        identity.setSpacing(1)
+        self.stock_name=W.QLabel("查这只股",objectName="stockTitle")
+        self.stock_meta=W.QLabel("",objectName="stockMeta")
+        identity.addWidget(self.stock_name)
+        identity.addWidget(self.stock_meta)
+        header.addLayout(identity,1)
+        self.price=W.QLabel("—",objectName="stockPrice")
+        self.price.setAlignment(C.Qt.AlignRight | C.Qt.AlignVCenter)
+        self.change=W.QLabel("",objectName="stockMeta")
+        header.addWidget(self.price)
+        header.addWidget(self.change)
+        layout.addLayout(header)
+
+        controls=W.QHBoxLayout()
+        controls.setSpacing(6)
+        controls.addWidget(W.QLabel("分时走势",objectName="sectionTitle"))
+        controls.addStretch()
+        code=W.QLineEdit(terminal.symbol)
         code.setPlaceholderText("代码或股票简称")
-        date = W.QDateEdit(C.QDate.currentDate())
+        code.setAccessibleName("股票代码或简称")
+        code.setMaximumWidth(160)
+        date=W.QDateEdit(C.QDate.currentDate())
         date.setCalendarPopup(True)
-        button = W.QPushButton("查询")
-        for widget in (code,date,button):controls.addWidget(widget)
-        title = W.QLabel()
-        layout.addWidget(title)
-        plot = Plot()
-        layout.addWidget(plot,2)
-        layout.addWidget(W.QLabel("绿色  分时价     金色  成交均价 VWAP     突 / 确  信号发生分钟     买 / 卖  模拟成交分钟"))
-        log = W.QPlainTextEdit()
+        date.setDisplayFormat("yyyy-MM-dd")
+        date.setAccessibleName("选择分时日期")
+        button=W.QPushButton("查询")
+        button.setObjectName("stockQuery")
+        for widget in (code,date,button):
+            controls.addWidget(widget)
+        layout.addLayout(controls)
+        plot=Plot()
+        self.plot=plot
+        layout.addWidget(plot,1)
+
+        decision_header=W.QHBoxLayout()
+        decision_header.addWidget(W.QLabel("决策与成交",objectName="sectionTitle"))
+        decision_header.addStretch()
+        decision_header.addWidget(W.QLabel("点击分时图复核该分钟",objectName="muted"))
+        layout.addLayout(decision_header)
+        log=W.QPlainTextEdit()
         log.setReadOnly(True)
-        layout.addWidget(log,1)
-        detail = W.QLabel()
+        log.setMinimumHeight(50)
+        log.setMaximumHeight(90)
+        layout.addWidget(log)
+        detail=W.QLabel("",objectName="decisionDetail")
         detail.setWordWrap(True)
+        detail.hide()
         layout.addWidget(detail)
         evidence = {}
         previous_volumes=[]
@@ -135,6 +322,7 @@ class Inspector(W.QWidget):
             else:
                 conditions=f"区间上沿 {upper:.2f}，高于上沿 {'是' if row[2]>upper else '否'}；高于均价 {('是' if row[2]>row[3] else '否') if row[3] else '未知'}；连续两分钟站上 {'是' if above(prev) and above(row) and hm!='0945' else '否'}"
             detail.setText(f"{hm[:2]}:{hm[2:]} 行情复核 · {conditions} · 同时点累计量比 {ratio}。"+' '.join(evidence.get(hm,[])))
+            detail.show()
         plot.clicked.connect(explain)
         today_volume={}
         inbox = queue.Queue()
@@ -148,12 +336,15 @@ class Inspector(W.QWidget):
             sym = next((s for s,n in terminal.names.items() if n==query),query)
             if len(sym)==6 and sym.isdigit():sym=("sh" if sym.startswith("6") else "sz")+sym
             day = date.date().toString("yyyyMMdd")
-            plot.rows=[];plot.marks={};plot.update();log.clear();detail.clear();evidence.clear();previous_volumes.clear();today_volume.clear()
+            plot.rows=[];plot.marks={};plot.update();log.clear();detail.clear();detail.hide();evidence.clear();previous_volumes.clear();today_volume.clear()
             if len(sym)!=8 or not market.main_board(sym):
-                title.setText("请输入沪深主板代码，或使用行情已同步的股票简称。")
+                self.symbol=None
+                self.series_status="请输入沪深主板股票代码或简称"
+                self.update_quote()
                 return
-            prefix = f"{terminal.names.get(sym,sym)} · {sym} · {day} · 账户 {terminal.active_id}"
-            title.setText(prefix+" · 正在读取分时")
+            self.symbol=sym
+            self.series_status="正在读取分时"
+            self.update_quote()
             notes = []
             for hm,rule,found,outcome in terminal.review.db.execute("SELECT hm,rule,found,outcome FROM signals WHERE sym=? AND day=? ORDER BY hm,rule",(sym,day)):
                 plot.marks[hm]="确" if rule=="连续确认" else "突"
@@ -190,20 +381,50 @@ class Inspector(W.QWidget):
                         status="本地历史分时样本"
                 def volumes(d):return {v[0]:float(v[2]) for v in (line.split() for line in d.get("data",[]))}
                 past=sorted((d for d in days if d["date"]<day),key=lambda d:d["date"],reverse=True)[:2]
-                inbox.put((token,prefix+" · "+status,rows,[volumes(d) for d in past],volumes(data or {})))
+                inbox.put((token,status,rows,[volumes(d) for d in past],volumes(data or {})))
             threading.Thread(target=fetch,daemon=True).start()
 
         def receive():
             while not inbox.empty():
-                token,caption,rows,prior,volumes=inbox.get_nowait()
+                token,status,rows,prior,volumes=inbox.get_nowait()
                 if token==generation:
-                    title.setText(caption);plot.rows=rows;previous_volumes[:]=prior;today_volume.update(volumes);plot.update()
+                    self.series_status=status
+                    plot.rows=rows;previous_volumes[:]=prior;today_volume.update(volumes);plot.update()
+                    self.update_quote()
         timer=C.QTimer(self);timer.timeout.connect(receive);timer.start(100)
         button.clicked.connect(search);code.returnPressed.connect(search)
         self.code,self.date,self.search=code,date,search
         refresh=C.QTimer(self);refresh.setInterval(60000);refresh.timeout.connect(lambda: search() if self.isVisible() and date.date()==C.QDate.currentDate() else None);refresh.start()
         date.dateChanged.connect(search)
         search()
+
+    def update_quote(self):
+        symbol=self.symbol
+        if not symbol:
+            self.stock_name.setText("查这只股")
+            self.stock_meta.setText(self.series_status)
+            self.price.setText("—")
+            self.change.clear()
+            return
+        selected=self.date.date().toPyDate()
+        today=dt.datetime.now(self.market.CN).date()
+        quote=self.terminal.data.get(symbol)
+        exchange="沪市" if symbol.startswith("sh") else "深市"
+        self.stock_name.setText(self.terminal.names.get(symbol,symbol[2:]))
+        self.stock_meta.setText(f"{symbol[2:]}　·　{exchange}主板　·　{self.series_status}")
+        color="#627084"
+        if selected==today and quote and quote[2].date()==today:
+            self.price.setText(f"{quote[0]:.2f}")
+            change=quote[1]
+            self.change.setText(f"{change:+.2f}%" if change else "0.00%")
+            color="#bc2338" if change>0 else "#127653" if change<0 else color
+        elif self.plot.rows:
+            self.price.setText(f"{self.plot.rows[-1][2]:.2f}")
+            self.change.setText("分时末价")
+        else:
+            self.price.setText("—")
+            self.change.clear()
+        self.change.setStyleSheet("color:"+color)
 
     def select_stock(self,symbol,date=None):
         self.code.setText(symbol)
